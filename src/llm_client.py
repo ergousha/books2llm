@@ -1,20 +1,17 @@
 import lmstudio as lms
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from .config import LLM_MODEL
+from .config import LLM_MODEL, LLM_BASE_URL
 
 class LLMClient:
     def __init__(self):
         self.model_name = LLM_MODEL
-        # We don't initialize the client here as a persistent object because 
-        # the SDK usage pattern suggests 'with lms.Client() as client:'.
-        # However, to keep the class structure, we can initialize it in methods 
-        # or keep a reference if the SDK supports it.
-        # The docs show:
-        # with lms.Client() as client:
-        #     model = client.llm.model("...")
-        #     ...
-        pass
-
+        # Format URL for LM Studio Native SDK (host:port)
+        # User provides http://host:port/v1 usually
+        # The SDK seems to add ws:// automatically, so we strip http:// and /v1
+        self.api_host = LLM_BASE_URL.replace("http://", "").replace("https://", "").replace("/v1", "")
+        if self.api_host.endswith("/"):
+            self.api_host = self.api_host[:-1]
+        
     def polish_text_safe(self, text: str) -> str:
         """
         Polishes the text using the LLM.
@@ -27,19 +24,9 @@ class LLMClient:
         current_chunk = []
         current_length = 0
         
-        # We create the client once for the batch to avoid overhead?
-        # Or per chunk? The SDK seems to handle connection.
-        # Let's try to use a single client context for the whole process if possible,
-        # but this method is called once per file.
-        
         try:
-            # Connect to LM Studio
-            # Note: The user needs to have the model loaded or available.
-            # The SDK might allow listing models or getting the loaded one.
-            # For now we assume the user provided model name is correct or we try to find it.
-            
-            print(f"Connecting to LM Studio...")
-            client = lms.Client()
+            print(f"Connecting to LM Studio at {self.api_host}...")
+            client = lms.Client(api_host=self.api_host)
             
             # Attempt to get the model. 
             # If the user has it loaded, we might need to query what's loaded or use the specific string.
