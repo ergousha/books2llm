@@ -1,0 +1,12 @@
+# Project specific
+input/
+output/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# System
+.DS_Store
