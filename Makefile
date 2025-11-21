@@ -4,10 +4,10 @@ VENV = .venv
 PYTHON = $(VENV)/bin/python
 PIP = $(VENV)/bin/pip
 
-venv:
+$(VENV)/bin/activate:
 	python3 -m venv $(VENV)
 
-install: venv
+install: $(VENV)/bin/activate
 	$(PIP) install -r requirements.txt
 	# Marker might need additional setup for models
 	# $(PYTHON) -c "import marker; marker.download_models()" # Example if needed

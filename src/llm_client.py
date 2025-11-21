@@ -1,23 +1,88 @@
-import os
-from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
+import lmstudio as lms
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from .config import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL
+from .config import LLM_MODEL
 
 class LLMClient:
     def __init__(self):
-        self.llm = ChatOpenAI(
-            base_url=LLM_BASE_URL,
-            api_key=LLM_API_KEY,
-            model=LLM_MODEL,
-            temperature=0.1, # Low temperature for cleaning tasks
-            max_tokens=4096
-        )
+        self.model_name = LLM_MODEL
+        # We don't initialize the client here as a persistent object because 
+        # the SDK usage pattern suggests 'with lms.Client() as client:'.
+        # However, to keep the class structure, we can initialize it in methods 
+        # or keep a reference if the SDK supports it.
+        # The docs show:
+        # with lms.Client() as client:
+        #     model = client.llm.model("...")
+        #     ...
+        pass
+
+    def polish_text_safe(self, text: str) -> str:
+        """
+        Polishes the text using the LLM.
+        Splits by paragraphs to avoid overlap duplication issues.
+        """
+        paragraphs = text.split("\n\n")
+        polished_paragraphs = []
         
-        # Prompt for semantic cleaning in Turkish
-        self.prompt = ChatPromptTemplate.from_messages([
-            ("system", "Sen profesyonel bir redaktör ve editörsün. Görevin, OCR (Optik Karakter Tanıma) işleminden geçmiş bozuk metinleri düzeltmek."),
-            ("user", """Aşağıdaki metin bir kitaptan taranmıştır ve OCR hataları, yanlış satır kesmeleri ve bozuk cümleler içerebilir.
+        # Group paragraphs into chunks of ~2000 chars
+        current_chunk = []
+        current_length = 0
+        
+        # We create the client once for the batch to avoid overhead?
+        # Or per chunk? The SDK seems to handle connection.
+        # Let's try to use a single client context for the whole process if possible,
+        # but this method is called once per file.
+        
+        try:
+            # Connect to LM Studio
+            # Note: The user needs to have the model loaded or available.
+            # The SDK might allow listing models or getting the loaded one.
+            # For now we assume the user provided model name is correct or we try to find it.
+            
+            print(f"Connecting to LM Studio...")
+            client = lms.Client()
+            
+            # Attempt to get the model. 
+            # If the user has it loaded, we might need to query what's loaded or use the specific string.
+            # The 'model' method usually loads it or gets the handle.
+            # If we are unsure of the exact path, we can try to list.
+            # But let's stick to the config.
+            
+            # If the user says "Qwen3 Vl 30B", that might be the display name.
+            # The SDK usually needs the path-like ID (e.g. "qwen3-vl-30b").
+            # Since we don't know the exact ID, we might face an issue.
+            # However, let's try to use the config value.
+            
+            # To be safe, let's try to get *any* loaded model if possible, or the specific one.
+            # The docs example: client.llm.model("openai/gpt-oss-20b")
+            
+            # Let's assume the user put the correct ID in config.py.
+            model = client.llm.model(self.model_name)
+            
+            for p in paragraphs:
+                if current_length + len(p) > 2000:
+                    chunk_text = "\n\n".join(current_chunk)
+                    if chunk_text.strip():
+                        polished_paragraphs.append(self._process_chunk(model, chunk_text))
+                    current_chunk = [p]
+                    current_length = len(p)
+                else:
+                    current_chunk.append(p)
+                    current_length += len(p)
+            
+            if current_chunk:
+                chunk_text = "\n\n".join(current_chunk)
+                if chunk_text.strip():
+                    polished_paragraphs.append(self._process_chunk(model, chunk_text))
+                    
+        except Exception as e:
+            print(f"Error initializing LM Studio client: {e}")
+            return text # Return original text on failure
+                
+        return "\n\n".join(polished_paragraphs)
+
+    def _process_chunk(self, model, text):
+        system_prompt = "Sen profesyonel bir redaktör ve editörsün. Görevin, OCR (Optik Karakter Tanıma) işleminden geçmiş bozuk metinleri düzeltmek."
+        user_prompt = f"""Aşağıdaki metin bir kitaptan taranmıştır ve OCR hataları, yanlış satır kesmeleri ve bozuk cümleler içerebilir.
 Lütfen metni anlamını değiştirmeden aşağıdaki kurallara göre düzenle:
 1. Bölünmüş kelimeleri birleştir (tire ile ayrılmış satır sonları).
 2. Gereksiz satır sonlarını kaldır ve paragrafları düzgün hale getir.
@@ -27,88 +92,29 @@ Lütfen metni anlamını değiştirmeden aşağıdaki kurallara göre düzenle:
 
 Metin:
 {text}
-""")
-        ])
-        
-        self.chain = self.prompt | self.llm
-
-    def polish_text(self, text: str) -> str:
-        """
-        Polishes the text using the LLM.
-        Uses RecursiveCharacterTextSplitter to handle long texts.
-        """
-        # Split text into chunks to fit context window
-        # We use a large chunk size to keep context, but small enough for the model
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=2000,
-            chunk_overlap=200, # Overlap to maintain context
-            separators=["\n\n", "\n", " ", ""]
-        )
-        
-        chunks = text_splitter.split_text(text)
-        polished_chunks = []
-        
-        print(f"Processing {len(chunks)} chunks with LLM...")
-        
-        for i, chunk in enumerate(chunks):
-            print(f"  - Chunk {i+1}/{len(chunks)}")
-            try:
-                response = self.chain.invoke({"text": chunk})
-                polished_chunks.append(response.content)
-            except Exception as e:
-                print(f"Error processing chunk {i+1}: {e}")
-                # Fallback: append original chunk if LLM fails
-                polished_chunks.append(chunk)
-        
-        # Join chunks
-        # Note: Simple join might duplicate overlap content if not handled carefully.
-        # The user warned about this: "temizleme aşamasında örtüşme kullanırsanız aynı cümleler tekrar edebilir."
-        # However, RecursiveCharacterTextSplitter creates overlaps.
-        # Ideally, we should use a method that doesn't overlap for *processing* if we just concatenate,
-        # OR we rely on the LLM to output exactly what was input (minus errors) and we try to merge.
-        # Given the complexity of merging overlapped corrected text, and the user's suggestion:
-        # "temizleme aşamasında sayfa bazlı veya paragraf bazlı ilerlemek daha güvenlidir."
-        
-        # Let's switch strategy: Split by paragraphs (double newline) without overlap for safety in concatenation,
-        # UNLESS the paragraph is too huge.
-        
-        return "\n\n".join(polished_chunks)
-
-    def polish_text_safe(self, text: str) -> str:
-        """
-        Alternative strategy: Split by paragraphs to avoid overlap duplication issues.
-        """
-        paragraphs = text.split("\n\n")
-        polished_paragraphs = []
-        
-        # Group paragraphs into chunks of ~2000 chars
-        current_chunk = []
-        current_length = 0
-        
-        for p in paragraphs:
-            if current_length + len(p) > 2000:
-                # Process current chunk
-                chunk_text = "\n\n".join(current_chunk)
-                if chunk_text.strip():
-                    polished_paragraphs.append(self._process_chunk(chunk_text))
-                current_chunk = [p]
-                current_length = len(p)
-            else:
-                current_chunk.append(p)
-                current_length += len(p)
-        
-        # Process last chunk
-        if current_chunk:
-            chunk_text = "\n\n".join(current_chunk)
-            if chunk_text.strip():
-                polished_paragraphs.append(self._process_chunk(chunk_text))
-                
-        return "\n\n".join(polished_paragraphs)
-
-    def _process_chunk(self, text):
+"""
         try:
-            response = self.chain.invoke({"text": text})
-            return response.content
+            # The SDK's model.respond() takes a string prompt.
+            # To include system prompt, we might need to format it.
+            # Or use a chat structure if supported. 
+            # Based on docs: result = model.respond("...")
+            # We will combine them.
+            
+            full_prompt = f"{system_prompt}\n\n{user_prompt}"
+            
+            # Using predict or respond. Docs said respond.
+            result = model.respond(full_prompt)
+            
+            # result might be an object with .content or just a string?
+            # Docs: print(result) -> implies it has a string representation or is a string.
+            # JS example: console.info(result.content). Python example: print(result).
+            # Let's assume result is the string or has a __str__.
+            # But to be safe, let's check if it has .content
+            
+            if hasattr(result, 'content'):
+                return result.content
+            return str(result)
+            
         except Exception as e:
-            print(f"Error invoking LLM: {e}")
+            print(f"Error processing chunk with LM Studio: {e}")
             return text
