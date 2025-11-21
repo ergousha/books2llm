@@ -19,13 +19,16 @@ class PDFConverter:
         os.makedirs(output_dir, exist_ok=True)
         
         # Construct command
-        # marker_single /path/to/file.pdf /path/to/output --langs tr
+        # Use the marker_single from the same environment as the current python process
+        import sys
+        venv_bin = Path(sys.executable).parent
+        marker_cmd = venv_bin / "marker_single"
+        
         cmd = [
-            "marker_single",
+            str(marker_cmd),
             str(pdf_path),
-            str(output_dir),
-            "--langs", ",".join(MARKER_LANGS),
-            "--batch_multiplier", "2"
+            "--output_dir",
+            str(output_dir)
         ]
         
         print(f"Running Marker: {' '.join(cmd)}")
