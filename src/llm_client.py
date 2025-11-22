@@ -5,9 +5,6 @@ from .config import LLM_MODEL, LLM_BASE_URL
 class LLMClient:
     def __init__(self):
         self.model_name = LLM_MODEL
-        # Format URL for LM Studio Native SDK (host:port)
-        # User provides http://host:port/v1 usually
-        # The SDK seems to add ws:// automatically, so we strip http:// and /v1
         self.api_host = LLM_BASE_URL.replace("http://", "").replace("https://", "").replace("/v1", "")
         if self.api_host.endswith("/"):
             self.api_host = self.api_host[:-1]
@@ -21,45 +18,39 @@ class LLMClient:
         polished_paragraphs = []
         
         # Group paragraphs into chunks of ~2000 chars
+        chunks = []
         current_chunk = []
         current_length = 0
         
+        for p in paragraphs:
+            if current_length + len(p) > 2000:
+                chunk_text = "\n\n".join(current_chunk)
+                if chunk_text.strip():
+                    chunks.append(chunk_text)
+                current_chunk = [p]
+                current_length = len(p)
+            else:
+                current_chunk.append(p)
+                current_length += len(p)
+        
+        if current_chunk:
+            chunk_text = "\n\n".join(current_chunk)
+            if chunk_text.strip():
+                chunks.append(chunk_text)
+        
+        total_chunks = len(chunks)
+        print(f"Total chunks to process: {total_chunks}")
+
         try:
             print(f"Connecting to LM Studio at {self.api_host}...")
             client = lms.Client(api_host=self.api_host)
             
-            # Attempt to get the model. 
-            # If the user has it loaded, we might need to query what's loaded or use the specific string.
-            # The 'model' method usually loads it or gets the handle.
-            # If we are unsure of the exact path, we can try to list.
-            # But let's stick to the config.
-            
-            # If the user says "Qwen3 Vl 30B", that might be the display name.
-            # The SDK usually needs the path-like ID (e.g. "qwen3-vl-30b").
-            # Since we don't know the exact ID, we might face an issue.
-            # However, let's try to use the config value.
-            
-            # To be safe, let's try to get *any* loaded model if possible, or the specific one.
-            # The docs example: client.llm.model("openai/gpt-oss-20b")
-            
-            # Let's assume the user put the correct ID in config.py.
             model = client.llm.model(self.model_name)
             
-            for p in paragraphs:
-                if current_length + len(p) > 2000:
-                    chunk_text = "\n\n".join(current_chunk)
-                    if chunk_text.strip():
-                        polished_paragraphs.append(self._process_chunk(model, chunk_text))
-                    current_chunk = [p]
-                    current_length = len(p)
-                else:
-                    current_chunk.append(p)
-                    current_length += len(p)
-            
-            if current_chunk:
-                chunk_text = "\n\n".join(current_chunk)
-                if chunk_text.strip():
-                    polished_paragraphs.append(self._process_chunk(model, chunk_text))
+            for i, chunk in enumerate(chunks):
+                progress_pct = ((i + 1) / total_chunks) * 100
+                print(f"Processing chunk {i + 1}/{total_chunks} ({progress_pct:.1f}%)")
+                polished_paragraphs.append(self._process_chunk(model, chunk))
                     
         except Exception as e:
             print(f"Error initializing LM Studio client: {e}")
