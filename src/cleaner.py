@@ -14,6 +14,9 @@ class TextCleaner:
         
         # 2. Remove multiple newlines (more than 2)
         text = re.sub(r'\n{3,}', '\n\n', text)
+
+        # 3. Remove HTML tags
+        text = re.sub(r'<[^>]+>', '', text)
         
         # 3. Remove common OCR artifacts (optional, depends on observation)
         # Example: isolated single characters that are not words (excluding a, I, o, etc in Turkish context)

@@ -24,5 +24,11 @@ class TestBooks2LLM(unittest.TestCase):
         cleaned = cleaner.clean_raw_ocr(raw_text)
         self.assertEqual(cleaned, "Line 1\n\nLine 2")
 
+    def test_cleaner_html_tags(self):
+        cleaner = TextCleaner()
+        raw_text = "This is <b>bold</b> and this is <i>italic</i>."
+        cleaned = cleaner.clean_raw_ocr(raw_text)
+        self.assertEqual(cleaned, "This is bold and this is italic.")
+
 if __name__ == '__main__':
     unittest.main()
