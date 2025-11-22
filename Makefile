@@ -16,8 +16,9 @@ run:
 	$(PYTHON) -m src.pipeline
 
 clean:
+	rm -rf input/*
 	rm -rf output/*
-	rm -rf $(VENV)
+	# rm -rf $(VENV)
 
 lint:
 	$(PYTHON) -m flake8 src/
